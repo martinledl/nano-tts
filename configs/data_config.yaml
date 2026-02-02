@@ -1,0 +1,15 @@
+repo_id: speechbrain/tts-hifigan-ljspeech
+sample_rate: 22050
+mel_channels: 80
+n_mels: 80
+hop_length: 256
+win_length: 1024
+n_fft: 1024
+f_min: 0
+f_max: 8000
+power: 1
+normalized: False
+min_max_energy_norm: True
+norm: "slaney"
+mel_scale: "slaney"
+compression: True
