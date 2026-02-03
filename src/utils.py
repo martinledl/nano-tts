@@ -1,4 +1,5 @@
 import os
+import yaml
 
 
 DATASET_DIR = "data/LJSpeech-1.1/"
@@ -46,3 +47,10 @@ def get_alignment_dir():
 
 def get_alignment_path(filename):
     return os.path.abspath(ALIGNMENT_DIR + filename)
+
+
+def load_config(config_filename):
+    config_path = get_config_path(config_filename)
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return config

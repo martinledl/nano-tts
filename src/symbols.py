@@ -93,3 +93,7 @@ def get_vocabulary_size() -> int:
     return VOCABULARY_SIZE
 
 
+def get_padding_symbol_id() -> int:
+    return MFA_SYMBOLS['<pad>']
+
+

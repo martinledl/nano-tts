@@ -1,5 +1,7 @@
 .idea/
 data/
-model_checkpoints/
+**/model_checkpoints/
 pretrained_models/
 **/__pycache__/
+**/training_logs/
+runs/

@@ -1,0 +1,23 @@
+acoustic_model:
+  batch_size: 128
+  encoder_dim: 256
+  hidden_dim: 1024
+  n_heads: 4
+  encoder_layers: 4
+  encoder_dropout: 0.1
+  duration_predictor_hidden_dim: 256
+  duration_predictor_dropout: 0.1
+  learning_rate: 0.0002
+  epochs: 100
+  pretrained_model_path: "pretrained_models/duration_model.pth"
+
+flow_model:
+  input_dim: 337
+  output_dim: 80
+  hidden_dim: 512
+  n_layers: 6
+  n_heads: 8
+  dropout: 0.1
+  batch_size: 128
+  learning_rate: 0.0002
+  epochs: 100
