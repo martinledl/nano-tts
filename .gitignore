@@ -5,3 +5,6 @@ pretrained_models/
 **/__pycache__/
 **/training_logs/
 runs/
+**/*.wav
+**/*.mp4
+.env*

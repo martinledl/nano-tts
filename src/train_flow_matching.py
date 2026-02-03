@@ -13,6 +13,11 @@ from decoder import FlowMatchingDecoder
 from utils import load_config
 from model import AcousticModel
 from length_regulator import LengthRegulator
+from ema import ModelEma
+
+
+MEL_MEAN = -5.521275
+MEL_STD = 2.065534
 
 
 def compute_loss(batch, acoustic_model, flow_decoder, length_regulator, device):
@@ -24,6 +29,9 @@ def compute_loss(batch, acoustic_model, flow_decoder, length_regulator, device):
     # Transpose mel_spectrograms to (Batch, Time, 80)
     mel_spectrograms = mel_spectrograms.transpose(1, 2)
 
+    # Normalize mel spectrograms
+    x1 = (mel_spectrograms - MEL_MEAN) / MEL_STD
+
     # Get encoder outputs from acoustic model
     with torch.no_grad():
         log_duration_preds, encoder_outputs = acoustic_model(phonemes)
@@ -34,7 +42,6 @@ def compute_loss(batch, acoustic_model, flow_decoder, length_regulator, device):
     # Flow matching training
     batch_size = mel_spectrograms.size(0)
 
-    x1 = mel_spectrograms  # shape (B, Mel_Len, 80)
     x0 = torch.randn_like(x1, device=device)  # sample random gaussian noise
     t = torch.rand(batch_size, device=device)  # sample random time steps
     t = t.view(batch_size, 1, 1)  # shape (B, 1, 1)
@@ -131,7 +138,15 @@ def train():
     ).to(device)
 
     length_regulator = LengthRegulator().to(device)
+
+    ema_model = ModelEma(flow_matching_decoder, decay=0.9995, device=device)
+
     optimizer = torch.optim.AdamW(flow_matching_decoder.parameters(), lr=fm_config["learning_rate"])
+
+    scaler = None
+    if device.type == 'cuda':
+        print("Using mixed precision training with GradScaler.")
+        scaler = torch.amp.GradScaler()
 
     # Logging setup
     print("Starting training...")
@@ -152,11 +167,22 @@ def train():
         for batch in pbar:
             optimizer.zero_grad()
 
-            loss = compute_loss(batch, acoustic_model, flow_matching_decoder, length_regulator, device)
+            if scaler is not None:
+                with torch.amp.autocast(device_type=device.type):
+                    loss = compute_loss(batch, acoustic_model, flow_matching_decoder, length_regulator, device)
+                scaler.scale(loss).backward()
 
-            # Backpropagation
-            loss.backward()
-            optimizer.step()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(flow_matching_decoder.parameters(), max_norm=1.0)
+
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss = compute_loss(batch, acoustic_model, flow_matching_decoder, length_regulator, device)
+                loss.backward()
+                optimizer.step()
+
+            ema_model.update(flow_matching_decoder)
 
             running_loss += loss.item()
             pbar.set_postfix({"Batch Loss": f"{loss.item():.4f}"})
@@ -169,7 +195,11 @@ def train():
         val_running_loss = 0.0
         with torch.no_grad():
             for val_batch in val_dataloader:
-                loss = compute_loss(val_batch, acoustic_model, flow_matching_decoder, length_regulator, device)
+                if scaler is not None:
+                    with torch.amp.autocast(device_type=device.type):
+                        loss = compute_loss(val_batch, acoustic_model, flow_matching_decoder, length_regulator, device)
+                else:
+                    loss = compute_loss(val_batch, acoustic_model, flow_matching_decoder, length_regulator, device)
 
                 val_running_loss += loss.item()
 
@@ -184,6 +214,7 @@ def train():
             # Save the best model
             checkpoint_path = model_checkpoint_dir / "flow_matching_decoder_best.pt"
             torch.save(flow_matching_decoder.state_dict(), checkpoint_path)
+            torch.save(ema_model.module.state_dict(), model_checkpoint_dir / "flow_matching_decoder_ema_best.pt")
         else:
             patience_counter += 1
             if patience_counter >= patience:
