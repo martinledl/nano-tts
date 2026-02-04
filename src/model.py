@@ -21,37 +21,48 @@ class SinusoidalPositionalEncoding(nn.Module):
     def forward(self, x):
         # x shape: (Batch, Time, Dim)
         # Match positional encoding length to input length
-        x = x + self.pe[:, :x.size(1), :]
+        x = self.pe[:, :x.size(1), :]
         return x
 
 
 class DurationPredictor(nn.Module):
-    def __init__(self,
-                 in_channels=256,
-                 filter_channels=256,
-                 kernel_size=3,
-                 dropout=0.1
-                 ):
+    def __init__(self, in_channels, filter_channels, kernel_size, dropout):
         super(DurationPredictor, self).__init__()
 
-        self.layers = nn.Sequential(
-            nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size // 2),
-            nn.ReLU(),
-            nn.BatchNorm1d(filter_channels),
-            nn.Dropout(dropout),
+        # We need to wrap Conv1d to handle LayerNorm (which expects channels last)
+        self.conv1 = nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size // 2)
+        self.norm1 = nn.LayerNorm(filter_channels)
+        self.relu1 = nn.ReLU()
+        self.drop1 = nn.Dropout(dropout)
 
-            nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=kernel_size // 2),
-            nn.ReLU(),
-            nn.BatchNorm1d(filter_channels),
-            nn.Dropout(dropout),
+        self.conv2 = nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=kernel_size // 2)
+        self.norm2 = nn.LayerNorm(filter_channels)
+        self.relu2 = nn.ReLU()
+        self.drop2 = nn.Dropout(dropout)
 
-            # Final projection to 1 channel (log-duration)
-            nn.Conv1d(filter_channels, 1, kernel_size=1)
-        )
+        self.proj = nn.Conv1d(filter_channels, 1, kernel_size=1)
 
     def forward(self, x):
-        # x shape: (Batch, Channels, Time)
-        out = self.layers(x)
+        # x: (Batch, Channels, Time)
+
+        # Layer 1
+        x = self.conv1(x)
+        x = x.transpose(1, 2)  # (B, T, C) for LayerNorm
+        x = self.norm1(x)
+        x = x.transpose(1, 2)  # Back to (B, C, T)
+        x = self.relu1(x)
+        x = self.drop1(x)
+
+        # Layer 2
+        x = self.conv2(x)
+        x = x.transpose(1, 2)
+        x = self.norm2(x)
+        x = x.transpose(1, 2)
+        x = self.relu2(x)
+        x = self.drop2(x)
+
+        # Projection
+        out = self.proj(x)
         return out
 
 

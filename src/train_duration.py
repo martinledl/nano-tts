@@ -1,5 +1,7 @@
 import os
 
+from src.symbols import symbol_to_id
+
 # Allow PyTorch to fall back to CPU for operations missing on MPS
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -63,6 +65,9 @@ def train():
     ).to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
+
+    PAD_ID = symbol_to_id["pad"]
 
     # Logging setup
     print("Starting training...")
@@ -88,20 +93,21 @@ def train():
             log_duration_preds, _ = model(phonemes)
 
             # Compute loss (only consider non-padded lengths)
-            # Assumes when durations are 0, they are padding
-            mask = (durations > 0).float()
+            mask = (phonemes != PAD_ID).float()  # Mask for non-padded tokens
 
-            log_duration_targets = torch.log(durations.float() + 1.0)  # Log-transform targets
-            loss_elementwise = F.mse_loss(log_duration_preds, log_duration_targets, reduction='none')
+            log_duration_targets = torch.log1p(durations.float())  # log(1 + duration)
+            loss_unreduced = F.huber_loss(log_duration_preds, log_duration_targets, reduction='none')
 
             # Ensure padding errors do not contribute to loss
-            loss_masked = loss_elementwise * mask
+            loss_masked = loss_unreduced * mask
 
             # Normalize by number of valid (non-padded) elements
             loss = loss_masked.sum() / mask.sum()
 
             # Backward pass and optimization
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
             optimizer.step()
 
             running_loss += loss.item()
@@ -122,10 +128,11 @@ def train():
 
                 log_duration_preds, _ = model(phonemes)
 
-                mask = (durations > 0).float()
-                log_duration_targets = torch.log(durations.float() + 1.0)
-                loss_elementwise = F.mse_loss(log_duration_preds, log_duration_targets, reduction='none')
-                loss_masked = loss_elementwise * mask
+                mask = (phonemes != PAD_ID).float()
+                log_duration_targets = torch.log1p(durations.float())
+
+                loss_unreduced = F.huber_loss(log_duration_preds, log_duration_targets, reduction='none')
+                loss_masked = loss_unreduced * mask
                 loss = loss_masked.sum() / mask.sum()
 
                 val_running_loss += loss.item()
