@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import math
-from symbols import get_vocabulary_size, get_padding_symbol_id
+from symbols import symbol_to_id, symbols
 
 
 class SinusoidalPositionalEncoding(nn.Module):
@@ -67,7 +67,7 @@ class AcousticModel(nn.Module):
                  ):
         super(AcousticModel, self).__init__()
 
-        self.embedding = nn.Embedding(get_vocabulary_size(), encoder_dim)
+        self.embedding = nn.Embedding(len(symbols), encoder_dim)
         self.encoder_dim = encoder_dim
 
         encoder_layer = nn.TransformerEncoderLayer(
@@ -90,7 +90,7 @@ class AcousticModel(nn.Module):
 
     def forward(self, phonemes):
         # Create mask for padding tokens if needed
-        src_key_padding_mask = (phonemes == get_padding_symbol_id())  # (Batch, Time)
+        src_key_padding_mask = (phonemes == symbol_to_id["pad"])  # (Batch, Time)
 
         # Phonemes: (Batch, Time)
         x = self.embedding(phonemes) * math.sqrt(self.encoder_dim)

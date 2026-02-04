@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from pathlib import Path
-from symbols import get_mfa_symbol_id
+from symbols import symbol_to_id
 
 
 class TTSDataset(Dataset):
@@ -29,7 +29,7 @@ class TTSCollate:
         phoneme_lengths = torch.tensor([p.shape[0] for p in phonemes], dtype=torch.long)
         mel_lengths = torch.tensor([m.shape[-1] for m in mel_spectrograms], dtype=torch.long)
 
-        padded_phonemes = pad_sequence(phonemes, batch_first=True, padding_value=get_mfa_symbol_id('<pad>'))
+        padded_phonemes = pad_sequence(phonemes, batch_first=True, padding_value=symbol_to_id["pad"])
         padded_durations = pad_sequence(durations, batch_first=True, padding_value=0)
 
         # Transpose to (Time, 80) so pad_sequence treats Time as the length
