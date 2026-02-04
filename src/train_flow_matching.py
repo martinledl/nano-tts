@@ -16,8 +16,8 @@ from length_regulator import LengthRegulator
 from ema import ModelEma
 
 
-MEL_MEAN = -5.521275
-MEL_STD = 2.065534
+MEL_MEAN = -5.521485
+MEL_STD = 2.065618
 
 
 def compute_loss(batch, acoustic_model, flow_decoder, length_regulator, device):

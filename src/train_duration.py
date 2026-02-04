@@ -66,7 +66,7 @@ def train():
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
 
-    PAD_ID = symbol_to_id["pad"]
+    PAD_ID = symbol_to_id.get("pad", 0)
 
     # Logging setup
     print("Starting training...")
@@ -74,7 +74,7 @@ def train():
 
     best_val_loss = float('inf')
     patience_counter = 0
-    patience = config.get("patience", 10)
+    patience = config.get("patience", 20)
 
     # Training Loop
     for epoch in range(config["epochs"]):
@@ -138,9 +138,12 @@ def train():
 
         val_avg_loss = val_running_loss / len(val_dataloader)
 
+        scheduler.step(val_avg_loss)
+        current_lr = optimizer.param_groups[0]['lr']
+
         # Epoch completed
         print(
-            f"Epoch [{epoch + 1}/{config['epochs']}] finished | Train Loss: {avg_loss:.4f} | Val Loss: {val_avg_loss:.4f}")
+            f"Epoch [{epoch + 1}/{config['epochs']}] finished | Train Loss: {avg_loss:.4f} | Val Loss: {val_avg_loss:.4f} | LR: {current_lr:.6f}")
 
         # Early stopping check
         if val_avg_loss < best_val_loss:

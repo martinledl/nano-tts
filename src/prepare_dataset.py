@@ -5,6 +5,7 @@ import textgrid
 from pathlib import Path
 from tqdm import tqdm
 from symbols import symbol_to_id
+from speechbrain.lobes.models.FastSpeech2 import mel_spectogram
 
 
 def get_mel_spectrogram(audio_path, config):
@@ -23,30 +24,24 @@ def get_mel_spectrogram(audio_path, config):
     # 3. Create Transform
     # center=False is CRITICAL for TTS alignment.
     # It ensures frame 0 corresponds exactly to time 0.0s.
-    mel_transform = torchaudio.transforms.MelSpectrogram(
+    spectrogram, _ = mel_spectogram(
+        audio=wav.squeeze(0),
         sample_rate=config["sample_rate"],
-        n_fft=config["n_fft"],
-        win_length=config["win_length"],
         hop_length=config["hop_length"],
-        f_min=config["f_min"],
-        f_max=config["f_max"],
+        win_length=None,
         n_mels=config["n_mels"],
-        power=1.0,
-        center=False,
-        normalized=False
+        n_fft=config["n_fft"],
+        f_min=0.0,
+        f_max=8000.0,
+        power=1,
+        normalized=False,
+        min_max_energy_norm=True,
+        norm="slaney",
+        mel_scale="slaney",
+        compression=True
     )
 
-    # 4. Compute Mel
-    # wav shape: [Channels, Time] -> [1, Time]
-    mel = mel_transform(wav)
-
-    # 5. Log Compression (Spectral Normalization)
-    # Clamp to avoid log(0) errors
-    mel = torch.clamp(mel, min=1e-5)
-    log_mel = torch.log(mel)
-
-    # Remove channel dim -> [Mels, Time]
-    return log_mel.squeeze(0)
+    return spectrogram.squeeze(0)
 
 
 def seconds_to_frames(seconds, sample_rate, hop_length):
