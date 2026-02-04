@@ -7,16 +7,17 @@ import argparse
 import yaml
 import torch
 import torchaudio
-import numpy as np
 from speechbrain.inference.vocoders import HIFIGAN
 from model import AcousticModel
 from decoder import FlowMatchingDecoder
 from length_regulator import LengthRegulator
 from text_processing import text_to_sequence
+from symbols import symbol_to_id
+
 
 # --- CONFIGURATION ---
-SPN_ID = 47  # The ID for silence/space in your symbol set
-SILENCE_MEL_VAL = -11.5  # The value of silence in Log-Mel space
+SPN_ID = symbol_to_id.get("spn", symbol_to_id.get("sil", 0))  # The ID for silence/space in your symbol set
+SILENCE_MEL_VAL = -11.51  # The value of silence in Log-Mel space
 
 MEL_MEAN = -5.521275
 MEL_STD = 2.065534

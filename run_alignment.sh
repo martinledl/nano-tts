@@ -40,7 +40,8 @@ conda run -n $ENV_NAME mfa align \
     "$MODEL_NAME" \
     "$OUTPUT_DIR" \
     --clean \
-    --num_jobs 8
+    --num_jobs 8 \
+    --single_speaker
 
 echo ""
 echo "SUCCESS! TextGrids saved to: $OUTPUT_DIR"

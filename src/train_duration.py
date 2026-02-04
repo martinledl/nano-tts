@@ -1,7 +1,5 @@
 import os
 
-from src.symbols import symbol_to_id
-
 # Allow PyTorch to fall back to CPU for operations missing on MPS
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -13,6 +11,7 @@ import time
 from dataset import TTSDataset, TTSCollate
 from model import AcousticModel
 from utils import load_config
+from symbols import symbol_to_id
 
 
 def train():

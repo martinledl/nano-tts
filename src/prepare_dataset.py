@@ -3,57 +3,54 @@ import torchaudio
 import yaml
 import textgrid
 from pathlib import Path
-from speechbrain.lobes.models.FastSpeech2 import mel_spectogram
 from tqdm import tqdm
-
-# Add the parent directory (root) to sys.path
-import os
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import *
-from symbols import *
-
-
-def seconds_to_frames(seconds, sample_rate, hop_length):
-    frames = int(seconds * sample_rate / hop_length)
-    return frames
+from symbols import symbol_to_id
 
 
 def get_mel_spectrogram(audio_path, config):
     """
-    Computes Mel Spectrogram using SpeechBrain implementation to match HiFi-GAN.
-    Returns: Tensor of shape [Mels, Time]
+    Computes Log-Mel Spectrogram using standard Torchaudio.
+    Matches standard HiFi-GAN preprocessing.
     """
-    # Load Audio
-    # torchaudio loads as [channels, time]
+    # 1. Load Audio
     wav, sr = torchaudio.load(str(audio_path))
 
-    # Resample if needed
+    # 2. Resample if needed
     if sr != config["sample_rate"]:
         resampler = torchaudio.transforms.Resample(sr, config["sample_rate"])
         wav = resampler(wav)
 
-    # Use SpeechBrain's Exact Implementation
-    # Note: wav.squeeze(0) makes it 1D [Time]. SB treats this as a batch of 1.
-    spectrogram, _ = mel_spectogram(
-        audio=wav.squeeze(0),
+    # 3. Create Transform
+    # center=False is CRITICAL for TTS alignment.
+    # It ensures frame 0 corresponds exactly to time 0.0s.
+    mel_transform = torchaudio.transforms.MelSpectrogram(
         sample_rate=config["sample_rate"],
-        hop_length=config["hop_length"],
-        win_length=None,
-        n_mels=config["n_mels"],
         n_fft=config["n_fft"],
-        f_min=0.0,
-        f_max=8000.0,
-        power=1,
-        normalized=False,
-        min_max_energy_norm=True,
-        norm="slaney",
-        mel_scale="slaney",
-        compression=True
+        win_length=config["win_length"],
+        hop_length=config["hop_length"],
+        f_min=config["f_min"],
+        f_max=config["f_max"],
+        n_mels=config["n_mels"],
+        power=1.0,
+        center=False,
+        normalized=False
     )
 
-    spectrogram = spectrogram.squeeze(0)
-    return spectrogram
+    # 4. Compute Mel
+    # wav shape: [Channels, Time] -> [1, Time]
+    mel = mel_transform(wav)
+
+    # 5. Log Compression (Spectral Normalization)
+    # Clamp to avoid log(0) errors
+    mel = torch.clamp(mel, min=1e-5)
+    log_mel = torch.log(mel)
+
+    # Remove channel dim -> [Mels, Time]
+    return log_mel.squeeze(0)
+
+
+def seconds_to_frames(seconds, sample_rate, hop_length):
+    return int(seconds * sample_rate / hop_length)
 
 
 def convert_textgrid_to_pt(tg_path, wav_path, config):
@@ -61,77 +58,82 @@ def convert_textgrid_to_pt(tg_path, wav_path, config):
     mel_spectrogram = get_mel_spectrogram(wav_path, config)
     target_frames = mel_spectrogram.shape[-1]
 
-    # 2. Parse TextGrid (MFA Output)
-    tg = textgrid.TextGrid.fromFile(str(tg_path))
-    # MFA usually puts phones in the "phones" tier (tier 1 usually)
-    # Depending on MFA version, it might be named differently.
-    # We try getting the tier by name "phones", or fall back to index 1.
+    # 2. Parse TextGrid
     try:
+        tg = textgrid.TextGrid.fromFile(str(tg_path))
+        # MFA puts phones in the "phones" tier
         phoneme_tier = tg.getFirst("phones")
-    except ValueError:
-        # Fallback: assume it's the second tier (IntervalTier)
-        phoneme_tier = tg[1]
+    except Exception:
+        print(f"Error reading TextGrid: {tg_path}")
+        return
 
     phonemes = []
     durations = []
 
+    # 3. Iterate Intervals
     for interval in phoneme_tier.intervals:
         mark = interval.mark.strip()
 
-        # 3. Handle Special Tokens
-        # MFA marks silence as "" (empty), "<sil>", or "spn"
-        if mark == "" or mark == "<sil>" or mark == "spn" or mark == "sil":
-            if "spn" in symbol_to_id:
+        # --- ROBUST SYMBOL MAPPING ---
+        # MFA might output: "", "<sil>", "spn", "sil"
+        # We want to map ALL of these to our 'sil' ID.
+        if mark in ["", "<sil>", "spn", "sil"]:
+            if "sil" in symbol_to_id:
+                phonemes.append(symbol_to_id["sil"])
+            elif "spn" in symbol_to_id:
                 phonemes.append(symbol_to_id["spn"])
             else:
-                # Fallback if spn missing (shouldn't happen with your extraction)
+                # Should not happen if extraction worked
                 continue
+
+        # Valid Phoneme
         elif mark in symbol_to_id:
             phonemes.append(symbol_to_id[mark])
-        else:
-            # Unknown symbol? (e.g. noise marker)
-            # Map to spn (silence) to be safe
-            phonemes.append(symbol_to_id["spn"])
 
-        # 4. Calculate Duration
+        # Unknown/OOV? Map to silence to be safe
+        else:
+            if "sil" in symbol_to_id:
+                phonemes.append(symbol_to_id["sil"])
+
+        # --- DURATION CALCULATION ---
         duration_sec = interval.maxTime - interval.minTime
-        frames = seconds_to_frames(duration_sec, sample_rate=config["sample_rate"],
-                                   hop_length=config["hop_length"])
+        frames = seconds_to_frames(duration_sec, config["sample_rate"], config["hop_length"])
         durations.append(frames)
 
-    # 5. Fix Rounding Errors (CRITICAL)
-    # The sum of durations MUST equal the mel spectrogram length exactly.
+    # 4. The "Rounding Hack" (Critical)
+    # Audio duration vs Sum(Duration) is rarely identical due to rounding.
+    # We force the last phoneme to stretch/shrink to match the Mel length.
     total_duration = sum(durations)
     diff = target_frames - total_duration
 
     if len(durations) > 0:
         durations[-1] += diff
 
-        # If correction made the last duration negative (rare, but possible with short files)
+        # Safety: If the last phoneme was tiny and diff was negative,
+        # ensure it stays at least 1 frame.
         if durations[-1] < 1:
             durations[-1] = 1
-            # Propagate error backward or resize mel?
-            # Easiest: Force Resize Mel to match sum(durations)
-            actual_len = sum(durations)
-            if actual_len != target_frames:
-                mel_spectrogram = mel_spectrogram[:, :actual_len]
+            # If we still have a mismatch, trim the MEL
+            new_total = sum(durations)
+            if new_total < target_frames:
+                mel_spectrogram = mel_spectrogram[:, :new_total]
 
+    # 5. Save
     data = {
         "phonemes": torch.tensor(phonemes, dtype=torch.long),
         "durations": torch.tensor(durations, dtype=torch.long),
         "mel_spectrogram": mel_spectrogram
     }
 
-    # Save to processed folder
     save_name = tg_path.with_suffix(".pt").name
-    torch.save(data, Path("data") / "processed" / save_name)
+    torch.save(data, Path("data/processed") / save_name)
 
 
-def prepare_dataset(root_path_str, output_path_str):
-    root = Path(root_path_str)
+def prepare_dataset():
+    root = Path("data")
     wavs_dir = root / "LJSpeech-1.1" / "wavs"
-    aligned_dir = root / "aligned"  # Output folder from MFA
-    processed_dir = Path("data/processed")
+    aligned_dir = root / "aligned"
+    processed_dir = root / "processed"
     processed_dir.mkdir(parents=True, exist_ok=True)
 
     # Load config
@@ -141,25 +143,21 @@ def prepare_dataset(root_path_str, output_path_str):
 
     print(f"Looking for TextGrids in {aligned_dir}...")
     tg_files = list(aligned_dir.glob("*.TextGrid"))
-    print(f"Found {len(tg_files)} files.")
+    print(f"Found {len(tg_files)} files. Processing...")
 
     for tg_path in tqdm(tg_files):
         file_id = tg_path.stem
         wav_path = wavs_dir / f"{file_id}.wav"
-        output_path = processed_dir / f"{file_id}.pt"
 
         if not wav_path.exists():
-            print(f"Missing WAV for {file_id}, skipping.")
             continue
 
         try:
             convert_textgrid_to_pt(tg_path, wav_path, data_config)
         except Exception as e:
-            print(f"Error processing {file_id}: {e}")
+            # Print error but don't crash the whole loop
+            print(f"Failed {file_id}: {e}")
 
 
 if __name__ == "__main__":
-    ROOT = "./data/"
-    OUTPUT = "data/processed"
-
-    prepare_dataset(ROOT, OUTPUT)
+    prepare_dataset()
