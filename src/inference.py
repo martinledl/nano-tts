@@ -18,6 +18,9 @@ from text_processing import text_to_sequence
 SPN_ID = 47  # The ID for silence/space in your symbol set
 SILENCE_MEL_VAL = -11.5  # The value of silence in Log-Mel space
 
+MEL_MEAN = -5.521275
+MEL_STD = 2.065534
+
 # Initialize Vocoder Globally
 # It will download automatically to 'pretrained_models/' on the first run.
 hifi_gan = HIFIGAN.from_hparams(
@@ -156,13 +159,14 @@ def infer(text, am_checkpoint, fm_checkpoint, config_path, output_path, steps=50
             # Euler Step: x_new = x_old + velocity * dt
             x = x + v_pred * dt
 
-        # === FIX 2: PAD SPECTROGRAM TAIL ===
+        # Denormalize Mel Spectrogram
+        x = x * MEL_STD + MEL_MEAN
+
         # Add ~200ms of silence so HiFi-GAN doesn't crop the last word.
         n_pad = 20
         # Create silence tensor [Batch, n_pad, 80]
         padding = torch.full((batch_size, n_pad, 80), SILENCE_MEL_VAL, device=device)
         x = torch.cat([x, padding], dim=1)
-        # ===================================
 
         # 5. Vocode & Save
         # x is [Batch, Time, 80], save_audio_hifigan handles the rest

@@ -6,7 +6,7 @@ DATASET_DIR = "data/LJSpeech-1.1/"
 METADATA_PATH = DATASET_DIR + "metadata.csv"
 AUDIO_DIR = DATASET_DIR + "wavs/"
 CONFIG_DIR = "configs/"
-ALIGNMENT_DIR = "data/aligned_output/"
+ALIGNMENT_DIR = "data/aligned/"
 
 
 def walk_to_file(filepath):

@@ -8,16 +8,18 @@ acoustic_model:
   duration_predictor_hidden_dim: 256
   duration_predictor_dropout: 0.1
   learning_rate: 0.0002
-  epochs: 100
+  epochs: 500
+  patience: 30
   pretrained_model_path: "pretrained_models/duration_model.pth"
 
 flow_model:
   input_dim: 337
   output_dim: 80
-  hidden_dim: 512
-  n_layers: 6
+  hidden_dim: 384
+  n_layers: 12
   n_heads: 8
-  dropout: 0.1
-  batch_size: 128
-  learning_rate: 0.0002
-  epochs: 100
+  dropout: 0.2
+  batch_size: 64
+  learning_rate: 0.0001
+  epochs: 500
+  patience: 40
