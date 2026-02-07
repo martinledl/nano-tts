@@ -40,14 +40,7 @@ def text_to_sequence(text):
         if p in symbol_to_id:
             sequence.append(symbol_to_id[p])
         else:
-            # Fallback: If g2p outputs 'AA' but model knows 'AA1', try to find it
-            # This handles small mismatches between g2p_en and MFA
-            if f"{p}1" in symbol_to_id:
-                sequence.append(symbol_to_id[f"{p}1"])
-            elif f"{p}0" in symbol_to_id:
-                sequence.append(symbol_to_id[f"{p}0"])
-            else:
-                print(f"Warning: Unknown phoneme '{p}' - skipped.")
+            print(f"Warning: Unknown phoneme '{p}' - skipped.")
 
     return torch.LongTensor(sequence)
 

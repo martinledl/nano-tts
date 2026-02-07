@@ -116,32 +116,30 @@ def infer(text, am_checkpoint, fm_checkpoint, config_path, output_path, steps=50
     am, decoder = load_models(config_path, am_checkpoint, fm_checkpoint, device)
     length_regulator = LengthRegulator().to(device)
 
-    # 1. Text to Phonemes
-    sequence = text_to_sequence(text, ["english_cleaners"])
+    # Text to Phonemes
+    sequence = text_to_sequence(text)
 
-    # === FIX 1: APPEND SILENCE TOKEN ===
-    # This prevents the attention mechanism from corrupting the last word.
-    sequence.append(SPN_ID)
-    # ===================================
-
-    phonemes = torch.tensor([sequence]).to(device)  # [1, Seq_Len]
+    # sequence is already a tensor, just add the batch dimension
+    phonemes = sequence.unsqueeze(0).to(device)
 
     with torch.no_grad():
-        # 2. Get Duration & Text Encoding
+        # Get Duration and Text Encoding
         log_durations, encoder_outputs = am(phonemes)
 
         # Convert log durations to integers
-        durations = torch.exp(log_durations) - 1
+        durations = torch.expm1(log_durations)  # exp(log(x) + 1) - 1 = x
+        # Clamp to minimum of 1 frame to avoid zero-lengths
         durations = torch.clamp(durations, min=1).round().long()
 
         print(f"Predicted Duration (Frames): {durations.sum().item()}")
 
-        # 3. Align Text
+        # Align Text
         aligned_text = length_regulator(encoder_outputs, durations)  # [1, Total_Len, Dim]
 
-        # 4. Flow Matching (ODE Solver)
-        # Start from Random Noise (Normal Distribution)
         batch_size, seq_len, _ = aligned_text.shape
+
+        # Flow Matching
+        # Start from Random Noise (Normal Distribution)
         x = torch.randn(batch_size, seq_len, 80).to(device)
 
         # Padding Mask (All ones because we are generating full length)
